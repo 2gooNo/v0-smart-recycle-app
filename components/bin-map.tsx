@@ -17,9 +17,23 @@ export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" 
 
   useEffect(() => {
     if (typeof window === "undefined" || !mapRef.current) return
-    if (mapInstanceRef.current) return
+
+    // Clean up any existing map instance
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove()
+      mapInstanceRef.current = null
+    }
+
+    // Clear the container to avoid Leaflet's internal cache
+    if (mapRef.current) {
+      mapRef.current.innerHTML = ""
+      delete (mapRef.current as any)._leaflet_id
+    }
+    markersRef.current = []
 
     import("leaflet").then((L) => {
+      if (!mapRef.current) return
+
       delete (L.Icon.Default.prototype as any)._getIconUrl
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -30,7 +44,7 @@ export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" 
       // Center on Ulaanbaatar, Mongolia
       const center: [number, number] = [47.9184, 106.9177]
 
-      const map = L.map(mapRef.current!, {
+      const map = L.map(mapRef.current, {
         center,
         zoom: 13,
         zoomControl: true,
