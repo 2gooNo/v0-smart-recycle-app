@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useApp, type BinStation } from "@/contexts/app-context"
+import { useApp, type Bin } from "@/contexts/app-context"
 import { WasteDetector } from "@/components/waste-detector"
 import { NearbyBins } from "@/components/nearby-bins"
 import { SmartBinModal } from "@/components/smart-bin-modal"
@@ -21,7 +21,7 @@ export function HomeScreen() {
   const [step, setStep] = useState<Step>("detect")
   const [direction, setDirection] = useState<"forward" | "back">("forward")
   const [visible, setVisible] = useState(true)
-  const [selectedStation, setSelectedStation] = useState<BinStation | null>(null)
+  const [selectedBin, setSelectedBin] = useState<Bin | null>(null)
 
   // Auto-advance to map step when waste is detected
   useEffect(() => {
@@ -41,8 +41,8 @@ export function HomeScreen() {
     }, 220)
   }
 
-  const handleSelectStation = (station: BinStation) => {
-    setSelectedStation(station)
+  const handleSelectBin = (bin: Bin) => {
+    setSelectedBin(bin)
     navigateTo("dispose")
   }
 
@@ -51,13 +51,13 @@ export function HomeScreen() {
       resetDetection()
       navigateTo("detect", "back")
     } else if (step === "dispose") {
-      setSelectedStation(null)
+      setSelectedBin(null)
       navigateTo("map", "back")
     }
   }
 
   const handleDisposeDone = () => {
-    setSelectedStation(null)
+    setSelectedBin(null)
     resetDetection()
     navigateTo("detect", "back")
   }
@@ -134,13 +134,13 @@ export function HomeScreen() {
               <h1 className="text-xl font-bold text-foreground text-balance">Find a Recycling Station</h1>
               <p className="text-muted-foreground text-sm mt-0.5">Select a bin station near you in Ulaanbaatar</p>
             </div>
-            <NearbyBins onSelectStation={handleSelectStation} />
+            <NearbyBins onSelectBin={handleSelectBin} />
           </div>
         )}
 
-        {step === "dispose" && selectedStation && (
+        {step === "dispose" && selectedBin && (
           <SmartBinModal
-            station={selectedStation}
+            bin={selectedBin}
             onDone={handleDisposeDone}
           />
         )}

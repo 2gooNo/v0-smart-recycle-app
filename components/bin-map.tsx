@@ -1,47 +1,50 @@
 "use client"
 
-import { useEffect, useRef, useId, useState } from "react"
-import type { BinStation } from "@/contexts/app-context"
+import { useEffect, useRef, useState, useCallback } from "react"
+import type { Bin, WasteType } from "@/contexts/app-context"
+
+const typeColors: Record<WasteType, { main: string; border: string }> = {
+  plastic: { main: "#2563eb", border: "#bfdbfe" },
+  paper: { main: "#ca8a04", border: "#fef08a" },
+  metal: { main: "#4b5563", border: "#d1d5db" },
+  general: { main: "#ea580c", border: "#fed7aa" },
+}
 
 interface BinMapProps {
-  stations: BinStation[]
+  bins: Bin[]
   selectedId: string | null
-  onSelectStation: (station: BinStation) => void
+  onSelectBin: (bin: Bin) => void
+  wasteType: WasteType
   height?: string
 }
 
-export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" }: BinMapProps) {
-  const uniqueId = useId()
-  const containerId = `leaflet-map-${uniqueId.replace(/:/g, "-")}`
+export function BinMap({ bins, selectedId, onSelectBin, wasteType, height = "h-72" }: BinMapProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
-  const initRef = useRef(false)
-  const [isClient, setIsClient] = useState(false)
+  const leafletRef = useRef<any>(null)
+  const [isReady, setIsReady] = useState(false)
 
-  // Ensure we're on client side
+  // Store callbacks in refs to avoid re-initializing map
+  const onSelectBinRef = useRef(onSelectBin)
+  onSelectBinRef.current = onSelectBin
+
+  const binsRef = useRef(bins)
+  binsRef.current = bins
+
+  // Initialize map only once
   useEffect(() => {
-    setIsClient(true)
-  }, [])
+    if (typeof window === "undefined" || !containerRef.current) return
+    if (mapInstanceRef.current) return
 
-  useEffect(() => {
-    if (!isClient) return
-    
-    // Prevent double initialization in StrictMode
-    if (initRef.current) return
-    
-    const container = document.getElementById(containerId)
-    if (!container) return
-
-    // Check if container already has a map
-    if ((container as any)._leaflet_id) {
-      return
-    }
-
-    initRef.current = true
+    let cancelled = false
 
     import("leaflet").then((L) => {
-      const currentContainer = document.getElementById(containerId)
-      if (!currentContainer || (currentContainer as any)._leaflet_id) return
+      if (cancelled || !containerRef.current) return
+      if (mapInstanceRef.current) return
+
+      // Store leaflet reference
+      leafletRef.current = L
 
       delete (L.Icon.Default.prototype as any)._getIconUrl
       L.Icon.Default.mergeOptions({
@@ -53,7 +56,7 @@ export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" 
       // Center on Ulaanbaatar, Mongolia
       const center: [number, number] = [47.9184, 106.9177]
 
-      const map = L.map(currentContainer, {
+      const map = L.map(containerRef.current, {
         center,
         zoom: 13,
         zoomControl: true,
@@ -65,70 +68,88 @@ export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" 
         maxZoom: 19,
       }).addTo(map)
 
-      const makeIcon = (selected: boolean) =>
-        L.divIcon({
-          html: `<div style="
-            width:${selected ? 42 : 36}px;
-            height:${selected ? 42 : 36}px;
-            background:${selected ? "#15803d" : "#16a34a"};
-            border-radius:50% 50% 50% 0;
-            transform:rotate(-45deg);
-            border:3px solid ${selected ? "#bbf7d0" : "#fff"};
-            box-shadow:0 2px ${selected ? 14 : 8}px rgba(22,163,74,${selected ? 0.6 : 0.3});
-            display:flex;align-items:center;justify-content:center;
-          "><span style="transform:rotate(45deg);font-size:${selected ? 18 : 15}px;line-height:1;display:block;text-align:center;padding-top:2px;">♻️</span></div>`,
-          className: "",
-          iconSize: [selected ? 42 : 36, selected ? 42 : 36],
-          iconAnchor: [selected ? 21 : 18, selected ? 42 : 36],
-          popupAnchor: [0, selected ? -44 : -38],
-        })
-
-      stations.forEach((station) => {
-        const isSelected = station.id === selectedId
-        const marker = L.marker([station.lat, station.lng], { icon: makeIcon(isSelected) })
-          .addTo(map)
-          .bindPopup(
-            `<div style="font-family:sans-serif;padding:4px 2px;min-width:160px;">
-              <strong style="font-size:13px;">${station.name}</strong><br/>
-              <span style="font-size:11px;color:#6b7280;">${station.address}</span><br/>
-              <span style="font-size:11px;color:#16a34a;margin-top:2px;display:block;">${station.distance}m away</span>
-            </div>`,
-            { maxWidth: 220 }
-          )
-          .on("click", () => onSelectStation(station))
-
-        markersRef.current.push({ marker, stationId: station.id })
-      })
-
       mapInstanceRef.current = map
+      setIsReady(true)
     })
 
     return () => {
+      cancelled = true
       if (mapInstanceRef.current) {
         try {
           mapInstanceRef.current.remove()
         } catch (e) {
-          // ignore cleanup errors
+          // ignore
         }
         mapInstanceRef.current = null
+        leafletRef.current = null
         markersRef.current = []
-        initRef.current = false
+        setIsReady(false)
       }
     }
-  }, [isClient, containerId, stations, selectedId, onSelectStation])
+  }, [])
 
-  // Pan to selected station
+  // Update markers when bins, selectedId, or wasteType changes
+  useEffect(() => {
+    if (!isReady || !mapInstanceRef.current || !leafletRef.current) return
+
+    const L = leafletRef.current
+    const map = mapInstanceRef.current
+    const colors = typeColors[wasteType]
+
+    // Clear existing markers
+    markersRef.current.forEach(({ marker }) => {
+      try {
+        marker.remove()
+      } catch (e) {
+        // ignore
+      }
+    })
+    markersRef.current = []
+
+    const makeIcon = (selected: boolean) =>
+      L.divIcon({
+        html: `<div style="
+          width:${selected ? 42 : 36}px;
+          height:${selected ? 42 : 36}px;
+          background:${colors.main};
+          border-radius:50% 50% 50% 0;
+          transform:rotate(-45deg);
+          border:3px solid ${selected ? colors.border : "#fff"};
+          box-shadow:0 2px ${selected ? 14 : 8}px rgba(0,0,0,${selected ? 0.4 : 0.2});
+          display:flex;align-items:center;justify-content:center;
+        "><span style="transform:rotate(45deg);font-size:${selected ? 16 : 14}px;line-height:1;">♻️</span></div>`,
+        className: "",
+        iconSize: [selected ? 42 : 36, selected ? 42 : 36],
+        iconAnchor: [selected ? 21 : 18, selected ? 42 : 36],
+        popupAnchor: [0, selected ? -44 : -38],
+      })
+
+    bins.forEach((bin) => {
+      const isSelected = bin.id === selectedId
+      const marker = L.marker([bin.lat, bin.lng], { icon: makeIcon(isSelected) })
+        .addTo(map)
+        .bindPopup(
+          `<div style="font-family:sans-serif;padding:4px 2px;min-width:140px;">
+            <strong style="font-size:13px;">${bin.name}</strong><br/>
+            <span style="font-size:11px;color:#6b7280;">${bin.address}</span><br/>
+            <span style="font-size:11px;color:${colors.main};margin-top:2px;display:block;">${bin.distance}m away</span>
+          </div>`,
+          { maxWidth: 220 }
+        )
+        .on("click", () => onSelectBinRef.current(bin))
+
+      markersRef.current.push({ marker, binId: bin.id })
+    })
+  }, [isReady, bins, selectedId, wasteType])
+
+  // Pan to selected bin
   useEffect(() => {
     if (!mapInstanceRef.current || !selectedId) return
-    const station = stations.find((s) => s.id === selectedId)
-    if (station) {
-      mapInstanceRef.current.setView([station.lat, station.lng], 15, { animate: true })
+    const bin = bins.find((b) => b.id === selectedId)
+    if (bin) {
+      mapInstanceRef.current.setView([bin.lat, bin.lng], 15, { animate: true })
     }
-  }, [selectedId, stations])
-
-  if (!isClient) {
-    return <div className={`w-full ${height} rounded-xl bg-muted animate-pulse`} />
-  }
+  }, [selectedId, bins])
 
   return (
     <>
@@ -137,7 +158,10 @@ export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" 
         href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         crossOrigin="anonymous"
       />
-      <div id={containerId} className={`w-full ${height} rounded-xl overflow-hidden z-0`} />
+      <div 
+        ref={containerRef} 
+        className={`w-full ${height} rounded-xl overflow-hidden z-0 bg-muted`} 
+      />
     </>
   )
 }

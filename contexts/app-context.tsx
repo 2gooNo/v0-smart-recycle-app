@@ -4,14 +4,14 @@ import { createContext, useContext, useState, type ReactNode } from "react"
 
 export type WasteType = "plastic" | "paper" | "metal" | "general"
 
-export interface BinStation {
+export interface Bin {
   id: string
   name: string
   address: string
   distance: number
   lat: number
   lng: number
-  compartments: WasteType[]
+  type: WasteType // Each bin handles only ONE type
 }
 
 interface AppContextType {

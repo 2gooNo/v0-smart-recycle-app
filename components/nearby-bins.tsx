@@ -2,13 +2,11 @@
 
 import dynamic from "next/dynamic"
 import { useState } from "react"
-import { useApp, type BinStation, type WasteType } from "@/contexts/app-context"
+import { useApp, type Bin, type WasteType } from "@/contexts/app-context"
 import { Button } from "@/components/ui/button"
 import { MapPin, Navigation, Trash2 } from "lucide-react"
-import { BIN_STATIONS } from "@/lib/stations"
+import { getBinsByType } from "@/lib/stations"
 import { cn } from "@/lib/utils"
-
-export { BIN_STATIONS }
 
 const BinMap = dynamic(() => import("@/components/bin-map").then((m) => ({ default: m.BinMap })), {
   ssr: false,
@@ -19,113 +17,104 @@ const BinMap = dynamic(() => import("@/components/bin-map").then((m) => ({ defau
   ),
 })
 
-const compartmentConfig: Record<WasteType, { label: string; color: string; bg: string }> = {
-  plastic: { label: "Plastic", color: "text-blue-600",   bg: "bg-blue-100" },
-  paper:   { label: "Paper",   color: "text-yellow-600", bg: "bg-yellow-100" },
-  metal:   { label: "Metal",   color: "text-gray-600",   bg: "bg-gray-100" },
-  general: { label: "General", color: "text-orange-600", bg: "bg-orange-100" },
+const typeConfig: Record<WasteType, { label: string; color: string; bg: string; emoji: string }> = {
+  plastic: { label: "Plastic", color: "text-blue-600", bg: "bg-blue-100", emoji: "🧴" },
+  paper: { label: "Paper", color: "text-yellow-600", bg: "bg-yellow-100", emoji: "📄" },
+  metal: { label: "Metal", color: "text-gray-600", bg: "bg-gray-200", emoji: "🔩" },
+  general: { label: "General", color: "text-orange-600", bg: "bg-orange-100", emoji: "🗑️" },
 }
 
 interface NearbyBinsProps {
-  onSelectStation: (station: BinStation) => void
+  onSelectBin: (bin: Bin) => void
 }
 
-export function NearbyBins({ onSelectStation }: NearbyBinsProps) {
+export function NearbyBins({ onSelectBin }: NearbyBinsProps) {
   const { detectedWaste } = useApp()
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  const handlePinClick = (station: BinStation) => {
-    setSelectedId(station.id)
+  // Only show bins matching the detected waste type
+  const filteredBins = detectedWaste ? getBinsByType(detectedWaste) : []
+  const config = detectedWaste ? typeConfig[detectedWaste] : null
+
+  const handlePinClick = (bin: Bin) => {
+    setSelectedId(bin.id)
   }
 
-  const handleGo = (station: BinStation) => {
-    onSelectStation(station)
+  const handleGo = (bin: Bin) => {
+    onSelectBin(bin)
   }
 
-  const selectedStation = BIN_STATIONS.find((s) => s.id === selectedId) ?? null
+  if (!detectedWaste || !config) {
+    return (
+      <div className="flex items-center justify-center h-64 text-muted-foreground">
+        <p>Please detect waste first</p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full">
       {/* Hint banner */}
-      <div className="flex items-start gap-2 bg-primary/10 rounded-xl p-3 mb-3 shrink-0">
-        <Trash2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-        <p className="text-sm text-primary leading-snug">
-          Each station has <strong>4 compartments</strong>. Tap a pin to select a station, then press&nbsp;
-          <strong>Go</strong> to open it.
-          {detectedWaste && (
-            <> Your waste type is <strong className="capitalize">{detectedWaste}</strong>.</>
-          )}
+      <div className={cn("flex items-start gap-2 rounded-xl p-3 mb-3 shrink-0", config.bg)}>
+        <Trash2 className={cn("w-4 h-4 mt-0.5 shrink-0", config.color)} />
+        <p className={cn("text-sm leading-snug", config.color)}>
+          Showing <strong>{config.label}</strong> bins only. Tap a pin to select, then press <strong>Go</strong>.
         </p>
       </div>
 
-      {/* Map — always visible */}
+      {/* Map - shows only matching bins */}
       <div className="rounded-xl overflow-hidden shrink-0 mb-3">
         <BinMap
-          stations={BIN_STATIONS}
+          bins={filteredBins}
           selectedId={selectedId}
-          onSelectStation={handlePinClick}
+          onSelectBin={handlePinClick}
+          wasteType={detectedWaste}
           height="h-64"
         />
       </div>
 
-      {/* Station list — scrollable */}
+      {/* Bin list - scrollable */}
       <div className="flex-1 overflow-y-auto space-y-2 pb-2">
-        {BIN_STATIONS.map((station) => {
-          const isSelected = station.id === selectedId
+        {filteredBins.map((bin) => {
+          const isSelected = bin.id === selectedId
 
           return (
             <div
-              key={station.id}
-              onClick={() => handlePinClick(station)}
+              key={bin.id}
+              onClick={() => handlePinClick(bin)}
               className={cn(
                 "flex items-center justify-between p-3 rounded-2xl border cursor-pointer transition-all duration-200",
                 isSelected
-                  ? "bg-primary/10 border-primary/40 ring-2 ring-primary/20"
+                  ? cn(config.bg, "border-current ring-2 ring-current/20", config.color)
                   : "bg-card border-border/50 hover:bg-muted/50"
               )}
             >
               {/* Left */}
               <div className="flex items-center gap-3 min-w-0">
                 <div className={cn(
-                  "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base",
-                  isSelected ? "bg-primary/20" : "bg-muted"
+                  "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-lg",
+                  config.bg
                 )}>
-                  ♻
+                  {config.emoji}
                 </div>
                 <div className="min-w-0">
                   <p className={cn(
                     "font-medium text-sm leading-tight truncate",
-                    isSelected ? "text-primary" : "text-foreground"
+                    isSelected ? config.color : "text-foreground"
                   )}>
-                    {station.name}
+                    {bin.name}
                   </p>
-                  <p className="text-xs text-muted-foreground truncate">{station.address}</p>
-                  {/* Compartment badges */}
-                  <div className="flex gap-1 mt-1 flex-wrap">
-                    {station.compartments.map((c) => (
-                      <span
-                        key={c}
-                        className={cn(
-                          "text-[10px] font-medium px-1.5 py-0.5 rounded-full capitalize",
-                          compartmentConfig[c].bg,
-                          compartmentConfig[c].color,
-                          detectedWaste === c && "ring-1 ring-current"
-                        )}
-                      >
-                        {compartmentConfig[c].label}
-                      </span>
-                    ))}
-                  </div>
+                  <p className="text-xs text-muted-foreground truncate">{bin.address}</p>
                 </div>
               </div>
 
               {/* Right */}
               <div className="flex flex-col items-end gap-2 ml-2 shrink-0">
-                <span className="text-xs text-muted-foreground">{station.distance}m</span>
+                <span className="text-xs text-muted-foreground">{bin.distance}m</span>
                 {isSelected && (
                   <Button
                     size="sm"
-                    onClick={(e) => { e.stopPropagation(); handleGo(station) }}
+                    onClick={(e) => { e.stopPropagation(); handleGo(bin) }}
                     className="rounded-xl h-8 text-xs px-3"
                   >
                     <Navigation className="w-3 h-3 mr-1" />
