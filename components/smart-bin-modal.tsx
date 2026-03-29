@@ -3,140 +3,152 @@
 import { useState } from "react"
 import { useApp, type Bin, type WasteType } from "@/contexts/app-context"
 import { Button } from "@/components/ui/button"
-import { Unlock, ScanLine, CheckCircle2, Sparkles, ArrowDown } from "lucide-react"
+import { Unlock, ArrowDown, ScanLine, CheckCircle2, Sparkles, LockKeyhole } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-const typeConfig: Record<WasteType, { label: string; color: string; bg: string; borderColor: string; emoji: string }> = {
-  plastic: { label: "Plastic", color: "text-blue-700", bg: "bg-blue-50", borderColor: "border-blue-300", emoji: "🧴" },
-  paper: { label: "Paper", color: "text-yellow-700", bg: "bg-yellow-50", borderColor: "border-yellow-300", emoji: "📄" },
-  metal: { label: "Metal", color: "text-gray-700", bg: "bg-gray-100", borderColor: "border-gray-300", emoji: "🔩" },
-  general: { label: "General", color: "text-orange-700", bg: "bg-orange-50", borderColor: "border-orange-300", emoji: "🗑️" },
+const typeConfig: Record<WasteType, { label: string; color: string; bg: string; border: string; emoji: string }> = {
+  plastic: { label: "Plastic", color: "text-blue-700",  bg: "bg-blue-50",   border: "border-blue-300",  emoji: "🧴" },
+  paper:   { label: "Paper",   color: "text-yellow-700",bg: "bg-yellow-50", border: "border-yellow-300",emoji: "📄" },
+  metal:   { label: "Metal",   color: "text-gray-700",  bg: "bg-gray-100",  border: "border-gray-300",  emoji: "🔩" },
+  general: { label: "General", color: "text-orange-700",bg: "bg-orange-50", border: "border-orange-300",emoji: "🗑️" },
 }
+
+// Step order: idle → open → drop → scanning → processing → success
+type BinPhase = "idle" | "open" | "dropping" | "scanning" | "processing" | "success"
 
 interface SmartBinModalProps {
   bin: Bin
   onDone: () => void
 }
 
-type BinState = "idle" | "opening" | "dropping" | "scanning" | "processing" | "success"
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export function SmartBinModal({ bin, onDone }: SmartBinModalProps) {
-  const { detectedWaste, addPoints } = useApp()
-  const [binState, setBinState] = useState<BinState>("idle")
-  const [showPointsAnim, setShowPointsAnim] = useState(false)
+  const { addPoints } = useApp()
+  const [phase, setPhase] = useState<BinPhase>("idle")
+  const [showPoints, setShowPoints] = useState(false)
 
-  const config = typeConfig[bin.type]
+  const cfg = typeConfig[bin.type]
+  const lidOpen = phase !== "idle"
 
+  // Step 1: user taps "Open Bin"
+  const handleOpenBin = () => setPhase("open")
+
+  // Step 2: user taps "Drop Trash in Bin" — triggers auto-sorting sequence
   const handleDropTrash = async () => {
-    setBinState("opening")
-    await new Promise((r) => setTimeout(r, 600))
-    setBinState("dropping")
-    await new Promise((r) => setTimeout(r, 800))
-    setBinState("scanning")
-    await new Promise((r) => setTimeout(r, 1000))
-    setBinState("processing")
-    await new Promise((r) => setTimeout(r, 800))
-    setBinState("success")
+    setPhase("dropping")
+    await sleep(900)
+    setPhase("scanning")
+    await sleep(1100)
+    setPhase("processing")
+    await sleep(900)
+    setPhase("success")
     addPoints(10)
-    setShowPointsAnim(true)
-    setTimeout(() => setShowPointsAnim(false), 2200)
+    setShowPoints(true)
+    setTimeout(() => setShowPoints(false), 2500)
   }
 
-  const lidOpen = binState !== "idle"
-  const isScanning = binState === "scanning"
-  const isProcessing = binState === "processing"
-  const isSuccess = binState === "success"
+  const statusText: Record<BinPhase, string> = {
+    idle:       "Bin is locked. Press Open Bin to unlock it.",
+    open:       "Bin is open. Place your trash inside, then press Drop Trash.",
+    dropping:   "Receiving trash...",
+    scanning:   "AI is identifying waste type...",
+    processing: "Auto-sorting in progress...",
+    success:    `Sorted into ${cfg.label} bin! +10 points earned.`,
+  }
 
   return (
     <div className="flex flex-col gap-5">
       {/* Bin info */}
       <div>
         <h1 className="text-xl font-bold text-foreground text-balance">{bin.name}</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">{bin.address} - {bin.distance}m away</p>
+        <p className="text-sm text-muted-foreground mt-0.5">{bin.address} &mdash; {bin.distance}m away</p>
       </div>
 
-      {/* Bin type card */}
-      <div className={cn("rounded-2xl border p-4", config.bg, config.borderColor)}>
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          {isSuccess ? "Recycled" : "Bin Type"}
-        </p>
-        <div className="flex items-center gap-3">
-          <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center text-2xl", config.bg)}>
-            {config.emoji}
-          </div>
-          <div>
-            <p className={cn("text-base font-bold capitalize", config.color)}>{config.label} Bin</p>
-            <p className="text-xs text-muted-foreground">
-              {isSuccess 
-                ? "Successfully processed your waste" 
-                : "Auto-sorting single-type smart bin"
-              }
-            </p>
-          </div>
+      {/* Type badge */}
+      <div className={cn("rounded-2xl border p-4 flex items-center gap-3", cfg.bg, cfg.border)}>
+        <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0", cfg.bg)}>
+          {cfg.emoji}
+        </div>
+        <div>
+          <p className={cn("text-base font-bold capitalize", cfg.color)}>{cfg.label} Bin</p>
+          <p className="text-xs text-muted-foreground">
+            {phase === "success" ? "Waste successfully processed" : "Smart auto-sorting bin"}
+          </p>
         </div>
       </div>
 
-      {/* Smart Bin visualization */}
+      {/* Bin illustration */}
       <div className="relative flex flex-col items-center py-2">
-        {/* Trash dropping animation */}
-        {binState === "dropping" && (
-          <div className="absolute -top-2 left-1/2 -translate-x-1/2 animate-bounce z-10">
-            <div className="text-3xl">{config.emoji}</div>
-            <ArrowDown className="w-5 h-5 text-primary mx-auto animate-pulse" />
+
+        {/* Trash item dropping */}
+        {phase === "dropping" && (
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex flex-col items-center z-10 animate-bounce">
+            <span className="text-3xl">{cfg.emoji}</span>
+            <ArrowDown className="w-4 h-4 text-primary animate-pulse" />
           </div>
         )}
 
-        {/* Main bin body - single type */}
+        {/* Bin body */}
         <div className={cn(
-          "relative w-48 h-52 rounded-xl border-2 overflow-hidden transition-all duration-300",
-          config.bg,
-          config.borderColor
+          "relative w-44 h-48 rounded-xl border-2 overflow-visible transition-all duration-300",
+          cfg.bg, cfg.border
         )}>
           {/* Lid */}
           <div className={cn(
-            "absolute -top-1 left-2 right-2 h-6 border-2 rounded-t-lg transition-all duration-500 origin-bottom z-20",
-            config.borderColor,
-            config.bg,
-            lidOpen ? "-translate-y-4 opacity-60" : "translate-y-0 opacity-100"
+            "absolute -top-3 left-2 right-2 h-5 rounded-t-lg border-2 transition-all duration-500 origin-left z-20 flex items-center justify-center",
+            cfg.border, cfg.bg,
+            lidOpen ? "-translate-y-5 -rotate-45 opacity-50" : "translate-y-0 rotate-0 opacity-100"
           )}>
-            <div className="absolute inset-x-0 top-1 flex justify-center">
-              <div className={cn("w-8 h-1 rounded-full", config.color, "opacity-30")} />
-            </div>
+            <div className={cn("w-6 h-1 rounded-full opacity-40", cfg.color)} />
           </div>
 
-          {/* AI Scanner beam */}
-          {isScanning && (
-            <div className="absolute inset-x-4 top-10 h-1 bg-primary/60 rounded-full animate-pulse z-10">
-              <div className="absolute inset-0 bg-primary animate-ping rounded-full" />
+          {/* Lock icon on idle */}
+          {phase === "idle" && (
+            <div className="absolute top-6 left-1/2 -translate-x-1/2">
+              <LockKeyhole className="w-6 h-6 text-muted-foreground/50" />
             </div>
           )}
 
-          {/* Single compartment visualization */}
-          <div className="absolute inset-x-4 bottom-4 top-10 flex flex-col items-center justify-center rounded-lg border border-current/20">
-            <span className="text-5xl mb-2">{config.emoji}</span>
-            <span className={cn("text-sm font-semibold uppercase tracking-wide", config.color)}>
-              {config.label}
+          {/* Scanner beam */}
+          {phase === "scanning" && (
+            <div className="absolute inset-x-6 top-8 h-0.5 bg-primary rounded-full z-10">
+              <div className="absolute inset-0 bg-primary/60 animate-ping rounded-full" />
+            </div>
+          )}
+
+          {/* Compartment interior */}
+          <div className="absolute inset-x-4 bottom-4 top-12 flex flex-col items-center justify-center rounded-lg border border-current/10 gap-1">
+            <span className={cn("text-4xl transition-all duration-300", phase === "success" ? "scale-110" : "scale-100")}>
+              {cfg.emoji}
             </span>
-            {isSuccess && (
-              <CheckCircle2 className="w-6 h-6 text-primary mt-2 animate-in zoom-in" />
+            <span className={cn("text-xs font-semibold uppercase tracking-wide", cfg.color)}>
+              {cfg.label}
+            </span>
+            {phase === "success" && (
+              <CheckCircle2 className="w-5 h-5 text-primary mt-1" />
             )}
           </div>
 
-          {/* AI indicator */}
-          <div className="absolute top-8 left-1/2 -translate-x-1/2 flex items-center gap-1 text-xs text-muted-foreground bg-background/80 px-2 py-0.5 rounded-full">
+          {/* AI status pill */}
+          <div className="absolute top-6 right-2 left-2 flex items-center justify-center gap-1.5">
             <span className={cn(
-              "w-2 h-2 rounded-full",
-              isScanning || isProcessing ? "bg-primary animate-pulse" : isSuccess ? "bg-green-500" : "bg-muted-foreground/40"
+              "w-2 h-2 rounded-full shrink-0",
+              phase === "scanning" || phase === "processing" ? "bg-primary animate-pulse" :
+              phase === "success" ? "bg-green-500" : "bg-muted-foreground/30"
             )} />
-            <span className="font-medium">
-              {isScanning ? "Scanning..." : isProcessing ? "Processing..." : isSuccess ? "Done" : "Ready"}
+            <span className="text-[10px] font-medium text-muted-foreground">
+              {phase === "scanning"   ? "Scanning..."   :
+               phase === "processing" ? "Processing..." :
+               phase === "success"    ? "Done"          :
+               phase === "open"       ? "Ready"         : "Locked"}
             </span>
           </div>
         </div>
 
-        {/* Points pop */}
-        {showPointsAnim && (
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 flex items-center gap-1 px-3 py-1.5 rounded-full bg-primary text-primary-foreground font-semibold text-sm animate-in zoom-in slide-in-from-bottom-4 shadow-lg z-30">
+        {/* Points popup */}
+        {showPoints && (
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 flex items-center gap-1 px-3 py-1.5 rounded-full bg-primary text-primary-foreground font-semibold text-sm shadow-lg z-30 animate-in zoom-in slide-in-from-bottom-4">
             <Sparkles className="w-4 h-4" />
             +10 pts
           </div>
@@ -144,38 +156,37 @@ export function SmartBinModal({ bin, onDone }: SmartBinModalProps) {
       </div>
 
       {/* Status text */}
-      <p className="text-center text-sm text-muted-foreground">
-        {binState === "idle" && "Drop your trash into the bin"}
-        {binState === "opening" && "Opening bin..."}
-        {binState === "dropping" && "Receiving trash..."}
-        {binState === "scanning" && "AI verifying waste type..."}
-        {binState === "processing" && "Processing..."}
-        {binState === "success" && `Recycled in ${config.label} bin! +10 points earned`}
+      <p className="text-center text-sm text-muted-foreground leading-snug px-2">
+        {statusText[phase]}
       </p>
 
-      {/* Action button */}
-      {binState === "idle" && (
-        <Button onClick={handleDropTrash} className="w-full h-12 rounded-xl text-base">
+      {/* Action buttons */}
+      {phase === "idle" && (
+        <Button onClick={handleOpenBin} className="w-full h-12 rounded-xl text-base">
           <Unlock className="w-5 h-5 mr-2" />
+          Open Bin
+        </Button>
+      )}
+
+      {phase === "open" && (
+        <Button onClick={handleDropTrash} className="w-full h-12 rounded-xl text-base">
+          <ArrowDown className="w-5 h-5 mr-2" />
           Drop Trash in Bin
         </Button>
       )}
-      {(binState === "opening" || binState === "dropping") && (
-        <Button disabled className="w-full h-12 rounded-xl text-base">
-          <ArrowDown className="w-5 h-5 mr-2 animate-bounce" />
-          Dropping...
-        </Button>
-      )}
-      {(binState === "scanning" || binState === "processing") && (
+
+      {(phase === "dropping" || phase === "scanning" || phase === "processing") && (
         <Button disabled className="w-full h-12 rounded-xl text-base">
           <ScanLine className="w-5 h-5 mr-2 animate-pulse" />
-          {binState === "scanning" ? "Scanning..." : "Processing..."}
+          {phase === "dropping"   ? "Receiving..." :
+           phase === "scanning"   ? "Scanning..."  : "Processing..."}
         </Button>
       )}
-      {binState === "success" && (
+
+      {phase === "success" && (
         <Button onClick={onDone} className="w-full h-12 rounded-xl text-base">
           <CheckCircle2 className="w-5 h-5 mr-2" />
-          Done - Start Over
+          Done — Start Over
         </Button>
       )}
     </div>

@@ -1,14 +1,17 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback } from "react"
-import type { Bin, WasteType } from "@/contexts/app-context"
+import { useEffect, useState } from "react"
+import { type Bin, type WasteType } from "@/contexts/app-context"
 
-const typeColors: Record<WasteType, { main: string; border: string }> = {
-  plastic: { main: "#2563eb", border: "#bfdbfe" },
-  paper: { main: "#ca8a04", border: "#fef08a" },
-  metal: { main: "#4b5563", border: "#d1d5db" },
-  general: { main: "#ea580c", border: "#fed7aa" },
+const typeColors: Record<WasteType, string> = {
+  plastic: "#2563eb",
+  paper:   "#ca8a04",
+  metal:   "#4b5563",
+  general: "#ea580c",
 }
+
+// Center on Ulaanbaatar, Mongolia
+const UB_CENTER: [number, number] = [47.9184, 106.9177]
 
 interface BinMapProps {
   bins: Bin[]
@@ -18,34 +21,28 @@ interface BinMapProps {
   height?: string
 }
 
+// This component is always loaded via next/dynamic with ssr:false,
+// so window is guaranteed to exist here. We still lazy-import react-leaflet
+// to keep the bundle split clean.
 export function BinMap({ bins, selectedId, onSelectBin, wasteType, height = "h-72" }: BinMapProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const mapInstanceRef = useRef<any>(null)
-  const markersRef = useRef<any[]>([])
-  const leafletRef = useRef<any>(null)
-  const [isReady, setIsReady] = useState(false)
+  const [LeafletComponents, setLeafletComponents] = useState<{
+    MapContainer: any
+    TileLayer: any
+    Marker: any
+    Popup: any
+    FlyController: any
+  } | null>(null)
 
-  // Store callbacks in refs to avoid re-initializing map
-  const onSelectBinRef = useRef(onSelectBin)
-  onSelectBinRef.current = onSelectBin
+  const [leafletIcon, setLeafletIcon] = useState<((color: string, selected: boolean) => any) | null>(null)
 
-  const binsRef = useRef(bins)
-  binsRef.current = bins
-
-  // Initialize map only once
   useEffect(() => {
-    if (typeof window === "undefined" || !containerRef.current) return
-    if (mapInstanceRef.current) return
-
-    let cancelled = false
-
-    import("leaflet").then((L) => {
-      if (cancelled || !containerRef.current) return
-      if (mapInstanceRef.current) return
-
-      // Store leaflet reference
-      leafletRef.current = L
-
+    // Dynamically import both leaflet and react-leaflet only on the client
+    Promise.all([
+      import("leaflet"),
+      import("react-leaflet"),
+      import("leaflet/dist/leaflet.css" as any),
+    ]).then(([L, RL]) => {
+      // Fix webpack broken default icons
       delete (L.Icon.Default.prototype as any)._getIconUrl
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -53,115 +50,89 @@ export function BinMap({ bins, selectedId, onSelectBin, wasteType, height = "h-7
         shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
       })
 
-      // Center on Ulaanbaatar, Mongolia
-      const center: [number, number] = [47.9184, 106.9177]
-
-      const map = L.map(containerRef.current, {
-        center,
-        zoom: 13,
-        zoomControl: true,
-        scrollWheelZoom: false,
-      })
-
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxZoom: 19,
-      }).addTo(map)
-
-      mapInstanceRef.current = map
-      setIsReady(true)
-    })
-
-    return () => {
-      cancelled = true
-      if (mapInstanceRef.current) {
-        try {
-          mapInstanceRef.current.remove()
-        } catch (e) {
-          // ignore
-        }
-        mapInstanceRef.current = null
-        leafletRef.current = null
-        markersRef.current = []
-        setIsReady(false)
+      const makeIcon = (color: string, selected: boolean) => {
+        const size = selected ? 38 : 30
+        const svg = encodeURIComponent(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${Math.round(size*1.35)}" viewBox="0 0 30 40">` +
+          `<path d="M15 0C6.716 0 0 6.716 0 15c0 10.5 15 25 15 25S30 25.5 30 15C30 6.716 23.284 0 15 0z" fill="${color}" stroke="white" stroke-width="2.5"/>` +
+          `<circle cx="15" cy="15" r="7" fill="white" opacity="0.95"/>` +
+          `</svg>`
+        )
+        return L.divIcon({
+          className: "",
+          html: `<img src="data:image/svg+xml,${svg}" style="width:${size}px;height:${Math.round(size*1.35)}px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.3))" />`,
+          iconSize: [size, Math.round(size * 1.35)],
+          iconAnchor: [size / 2, Math.round(size * 1.35)],
+          popupAnchor: [0, -Math.round(size * 1.35)],
+        })
       }
-    }
+
+      // FlyController is a child component that needs useMap from react-leaflet
+      function FlyController({ bins, selectedId }: { bins: Bin[]; selectedId: string | null }) {
+        const map = RL.useMap()
+        useEffect(() => {
+          if (!selectedId) return
+          const bin = bins.find((b) => b.id === selectedId)
+          if (bin) map.flyTo([bin.lat, bin.lng], 15, { duration: 0.7 })
+        }, [selectedId, bins, map])
+        return null
+      }
+
+      setLeafletIcon(() => makeIcon)
+      setLeafletComponents({
+        MapContainer: RL.MapContainer,
+        TileLayer: RL.TileLayer,
+        Marker: RL.Marker,
+        Popup: RL.Popup,
+        FlyController,
+      })
+    })
   }, [])
 
-  // Update markers when bins, selectedId, or wasteType changes
-  useEffect(() => {
-    if (!isReady || !mapInstanceRef.current || !leafletRef.current) return
+  const color = typeColors[wasteType]
+  const center: [number, number] = bins.length > 0 ? [bins[0].lat, bins[0].lng] : UB_CENTER
 
-    const L = leafletRef.current
-    const map = mapInstanceRef.current
-    const colors = typeColors[wasteType]
+  if (!LeafletComponents || !leafletIcon) {
+    return (
+      <div className={`w-full ${height} rounded-xl bg-muted animate-pulse flex items-center justify-center`}>
+        <span className="text-xs text-muted-foreground">Loading map...</span>
+      </div>
+    )
+  }
 
-    // Clear existing markers
-    markersRef.current.forEach(({ marker }) => {
-      try {
-        marker.remove()
-      } catch (e) {
-        // ignore
-      }
-    })
-    markersRef.current = []
-
-    const makeIcon = (selected: boolean) =>
-      L.divIcon({
-        html: `<div style="
-          width:${selected ? 42 : 36}px;
-          height:${selected ? 42 : 36}px;
-          background:${colors.main};
-          border-radius:50% 50% 50% 0;
-          transform:rotate(-45deg);
-          border:3px solid ${selected ? colors.border : "#fff"};
-          box-shadow:0 2px ${selected ? 14 : 8}px rgba(0,0,0,${selected ? 0.4 : 0.2});
-          display:flex;align-items:center;justify-content:center;
-        "><span style="transform:rotate(45deg);font-size:${selected ? 16 : 14}px;line-height:1;">♻️</span></div>`,
-        className: "",
-        iconSize: [selected ? 42 : 36, selected ? 42 : 36],
-        iconAnchor: [selected ? 21 : 18, selected ? 42 : 36],
-        popupAnchor: [0, selected ? -44 : -38],
-      })
-
-    bins.forEach((bin) => {
-      const isSelected = bin.id === selectedId
-      const marker = L.marker([bin.lat, bin.lng], { icon: makeIcon(isSelected) })
-        .addTo(map)
-        .bindPopup(
-          `<div style="font-family:sans-serif;padding:4px 2px;min-width:140px;">
-            <strong style="font-size:13px;">${bin.name}</strong><br/>
-            <span style="font-size:11px;color:#6b7280;">${bin.address}</span><br/>
-            <span style="font-size:11px;color:${colors.main};margin-top:2px;display:block;">${bin.distance}m away</span>
-          </div>`,
-          { maxWidth: 220 }
-        )
-        .on("click", () => onSelectBinRef.current(bin))
-
-      markersRef.current.push({ marker, binId: bin.id })
-    })
-  }, [isReady, bins, selectedId, wasteType])
-
-  // Pan to selected bin
-  useEffect(() => {
-    if (!mapInstanceRef.current || !selectedId) return
-    const bin = bins.find((b) => b.id === selectedId)
-    if (bin) {
-      mapInstanceRef.current.setView([bin.lat, bin.lng], 15, { animate: true })
-    }
-  }, [selectedId, bins])
+  const { MapContainer, TileLayer, Marker, Popup, FlyController } = LeafletComponents
 
   return (
-    <>
-      <link
-        rel="stylesheet"
-        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        crossOrigin="anonymous"
-      />
-      <div 
-        ref={containerRef} 
-        className={`w-full ${height} rounded-xl overflow-hidden z-0 bg-muted`} 
-      />
-    </>
+    <div className={`w-full ${height}`} style={{ borderRadius: 12, overflow: "hidden" }}>
+      <MapContainer
+        center={center}
+        zoom={13}
+        style={{ width: "100%", height: "100%" }}
+        scrollWheelZoom={false}
+        zoomControl={true}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <FlyController bins={bins} selectedId={selectedId} />
+        {bins.map((bin) => (
+          <Marker
+            key={bin.id}
+            position={[bin.lat, bin.lng]}
+            icon={leafletIcon(color, bin.id === selectedId)}
+            eventHandlers={{ click: () => onSelectBin(bin) }}
+          >
+            <Popup>
+              <div style={{ fontFamily: "sans-serif", minWidth: 140 }}>
+                <strong style={{ fontSize: 13 }}>{bin.name}</strong><br />
+                <span style={{ fontSize: 11, color: "#6b7280" }}>{bin.address}</span><br />
+                <span style={{ fontSize: 11, color, display: "block", marginTop: 2 }}>{bin.distance}m away</span>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
+    </div>
   )
 }
