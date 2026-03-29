@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useId, useState } from "react"
 import type { BinStation } from "@/contexts/app-context"
 
 interface BinMapProps {
@@ -11,28 +11,37 @@ interface BinMapProps {
 }
 
 export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" }: BinMapProps) {
-  const mapRef = useRef<HTMLDivElement>(null)
+  const uniqueId = useId()
+  const containerId = `leaflet-map-${uniqueId.replace(/:/g, "-")}`
   const mapInstanceRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
+  const initRef = useRef(false)
+  const [isClient, setIsClient] = useState(false)
+
+  // Ensure we're on client side
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
 
   useEffect(() => {
-    if (typeof window === "undefined" || !mapRef.current) return
+    if (!isClient) return
+    
+    // Prevent double initialization in StrictMode
+    if (initRef.current) return
+    
+    const container = document.getElementById(containerId)
+    if (!container) return
 
-    // Clean up any existing map instance
-    if (mapInstanceRef.current) {
-      mapInstanceRef.current.remove()
-      mapInstanceRef.current = null
+    // Check if container already has a map
+    if ((container as any)._leaflet_id) {
+      return
     }
 
-    // Clear the container to avoid Leaflet's internal cache
-    if (mapRef.current) {
-      mapRef.current.innerHTML = ""
-      delete (mapRef.current as any)._leaflet_id
-    }
-    markersRef.current = []
+    initRef.current = true
 
     import("leaflet").then((L) => {
-      if (!mapRef.current) return
+      const currentContainer = document.getElementById(containerId)
+      if (!currentContainer || (currentContainer as any)._leaflet_id) return
 
       delete (L.Icon.Default.prototype as any)._getIconUrl
       L.Icon.Default.mergeOptions({
@@ -44,7 +53,7 @@ export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" 
       // Center on Ulaanbaatar, Mongolia
       const center: [number, number] = [47.9184, 106.9177]
 
-      const map = L.map(mapRef.current, {
+      const map = L.map(currentContainer, {
         center,
         zoom: 13,
         zoomControl: true,
@@ -82,7 +91,7 @@ export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" 
             `<div style="font-family:sans-serif;padding:4px 2px;min-width:160px;">
               <strong style="font-size:13px;">${station.name}</strong><br/>
               <span style="font-size:11px;color:#6b7280;">${station.address}</span><br/>
-              <span style="font-size:11px;color:#16a34a;margin-top:2px;display:block;">${station.distance}m away • 4 compartments</span>
+              <span style="font-size:11px;color:#16a34a;margin-top:2px;display:block;">${station.distance}m away</span>
             </div>`,
             { maxWidth: 220 }
           )
@@ -96,12 +105,17 @@ export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" 
 
     return () => {
       if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove()
+        try {
+          mapInstanceRef.current.remove()
+        } catch (e) {
+          // ignore cleanup errors
+        }
         mapInstanceRef.current = null
         markersRef.current = []
+        initRef.current = false
       }
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isClient, containerId, stations, selectedId, onSelectStation])
 
   // Pan to selected station
   useEffect(() => {
@@ -112,6 +126,10 @@ export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" 
     }
   }, [selectedId, stations])
 
+  if (!isClient) {
+    return <div className={`w-full ${height} rounded-xl bg-muted animate-pulse`} />
+  }
+
   return (
     <>
       <link
@@ -119,7 +137,7 @@ export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" 
         href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         crossOrigin="anonymous"
       />
-      <div ref={mapRef} className={`w-full ${height} rounded-xl overflow-hidden z-0`} />
+      <div id={containerId} className={`w-full ${height} rounded-xl overflow-hidden z-0`} />
     </>
   )
 }
