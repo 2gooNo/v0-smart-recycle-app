@@ -7,20 +7,19 @@ interface BinMapProps {
   stations: BinStation[]
   selectedId: string | null
   onSelectStation: (station: BinStation) => void
+  height?: string
 }
 
-export function BinMap({ stations, selectedId, onSelectStation }: BinMapProps) {
+export function BinMap({ stations, selectedId, onSelectStation, height = "h-72" }: BinMapProps) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
 
   useEffect(() => {
     if (typeof window === "undefined" || !mapRef.current) return
-    if (mapInstanceRef.current) return // already initialized
+    if (mapInstanceRef.current) return
 
-    // Dynamically import leaflet to avoid SSR issues
     import("leaflet").then((L) => {
-      // Fix default marker icon paths broken by webpack
       delete (L.Icon.Default.prototype as any)._getIconUrl
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -28,11 +27,12 @@ export function BinMap({ stations, selectedId, onSelectStation }: BinMapProps) {
         shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
       })
 
-      const center: [number, number] = [stations[0]?.lat ?? 3.139, stations[0]?.lng ?? 101.6869]
+      // Center on Ulaanbaatar, Mongolia
+      const center: [number, number] = [47.9184, 106.9177]
 
       const map = L.map(mapRef.current!, {
         center,
-        zoom: 15,
+        zoom: 13,
         zoomControl: true,
         scrollWheelZoom: false,
       })
@@ -42,50 +42,39 @@ export function BinMap({ stations, selectedId, onSelectStation }: BinMapProps) {
         maxZoom: 19,
       }).addTo(map)
 
-      // Create a green icon for bin stations
-      const greenIcon = L.divIcon({
-        html: `<div style="
-          width:36px;height:36px;background:#16a34a;border-radius:50% 50% 50% 0;
-          transform:rotate(-45deg);border:3px solid #fff;
-          box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;
-        "><span style="transform:rotate(45deg);font-size:16px;line-height:1;display:block;text-align:center;padding-top:2px;">♻️</span></div>`,
-        className: "",
-        iconSize: [36, 36],
-        iconAnchor: [18, 36],
-        popupAnchor: [0, -38],
-      })
-
-      const selectedIcon = L.divIcon({
-        html: `<div style="
-          width:42px;height:42px;background:#15803d;border-radius:50% 50% 50% 0;
-          transform:rotate(-45deg);border:3px solid #bbf7d0;
-          box-shadow:0 2px 12px rgba(22,163,74,0.5);display:flex;align-items:center;justify-content:center;
-        "><span style="transform:rotate(45deg);font-size:18px;line-height:1;display:block;text-align:center;padding-top:2px;">♻️</span></div>`,
-        className: "",
-        iconSize: [42, 42],
-        iconAnchor: [21, 42],
-        popupAnchor: [0, -44],
-      })
+      const makeIcon = (selected: boolean) =>
+        L.divIcon({
+          html: `<div style="
+            width:${selected ? 42 : 36}px;
+            height:${selected ? 42 : 36}px;
+            background:${selected ? "#15803d" : "#16a34a"};
+            border-radius:50% 50% 50% 0;
+            transform:rotate(-45deg);
+            border:3px solid ${selected ? "#bbf7d0" : "#fff"};
+            box-shadow:0 2px ${selected ? 14 : 8}px rgba(22,163,74,${selected ? 0.6 : 0.3});
+            display:flex;align-items:center;justify-content:center;
+          "><span style="transform:rotate(45deg);font-size:${selected ? 18 : 15}px;line-height:1;display:block;text-align:center;padding-top:2px;">♻️</span></div>`,
+          className: "",
+          iconSize: [selected ? 42 : 36, selected ? 42 : 36],
+          iconAnchor: [selected ? 21 : 18, selected ? 42 : 36],
+          popupAnchor: [0, selected ? -44 : -38],
+        })
 
       stations.forEach((station) => {
         const isSelected = station.id === selectedId
-        const marker = L.marker([station.lat, station.lng], {
-          icon: isSelected ? selectedIcon : greenIcon,
-        })
+        const marker = L.marker([station.lat, station.lng], { icon: makeIcon(isSelected) })
           .addTo(map)
           .bindPopup(
-            `<div style="font-family:sans-serif;padding:4px 2px;">
+            `<div style="font-family:sans-serif;padding:4px 2px;min-width:160px;">
               <strong style="font-size:13px;">${station.name}</strong><br/>
               <span style="font-size:11px;color:#6b7280;">${station.address}</span><br/>
-              <span style="font-size:11px;color:#16a34a;margin-top:2px;display:block;">${station.distance}m away</span>
+              <span style="font-size:11px;color:#16a34a;margin-top:2px;display:block;">${station.distance}m away • 4 compartments</span>
             </div>`,
-            { maxWidth: 200 }
+            { maxWidth: 220 }
           )
-          .on("click", () => {
-            onSelectStation(station)
-          })
+          .on("click", () => onSelectStation(station))
 
-        markersRef.current.push(marker)
+        markersRef.current.push({ marker, stationId: station.id })
       })
 
       mapInstanceRef.current = map
@@ -100,12 +89,12 @@ export function BinMap({ stations, selectedId, onSelectStation }: BinMapProps) {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Pan to selected station when it changes
+  // Pan to selected station
   useEffect(() => {
     if (!mapInstanceRef.current || !selectedId) return
     const station = stations.find((s) => s.id === selectedId)
     if (station) {
-      mapInstanceRef.current.setView([station.lat, station.lng], 16, { animate: true })
+      mapInstanceRef.current.setView([station.lat, station.lng], 15, { animate: true })
     }
   }, [selectedId, stations])
 
@@ -116,7 +105,7 @@ export function BinMap({ stations, selectedId, onSelectStation }: BinMapProps) {
         href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         crossOrigin="anonymous"
       />
-      <div ref={mapRef} className="w-full h-52 rounded-xl overflow-hidden z-0" />
+      <div ref={mapRef} className={`w-full ${height} rounded-xl overflow-hidden z-0`} />
     </>
   )
 }
