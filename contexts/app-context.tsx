@@ -2,15 +2,23 @@
 
 import { createContext, useContext, useState, type ReactNode } from "react"
 
-type WasteType = "plastic" | "paper" | "metal" | null
+export type WasteType = "plastic" | "paper" | "metal" | "general"
+
+export interface BinStation {
+  id: string
+  name: string
+  address: string
+  distance: number
+  lat: number
+  lng: number
+  compartments: WasteType[]
+}
 
 interface AppContextType {
   points: number
   addPoints: (amount: number) => void
-  detectedWaste: WasteType
-  setDetectedWaste: (waste: WasteType) => void
-  selectedBin: WasteType
-  setSelectedBin: (bin: WasteType) => void
+  detectedWaste: WasteType | null
+  setDetectedWaste: (waste: WasteType | null) => void
   resetDetection: () => void
 }
 
@@ -18,8 +26,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined)
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [points, setPoints] = useState(0)
-  const [detectedWaste, setDetectedWaste] = useState<WasteType>(null)
-  const [selectedBin, setSelectedBin] = useState<WasteType>(null)
+  const [detectedWaste, setDetectedWaste] = useState<WasteType | null>(null)
 
   const addPoints = (amount: number) => {
     setPoints((prev) => prev + amount)
@@ -27,7 +34,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const resetDetection = () => {
     setDetectedWaste(null)
-    setSelectedBin(null)
   }
 
   return (
@@ -37,8 +43,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addPoints,
         detectedWaste,
         setDetectedWaste,
-        selectedBin,
-        setSelectedBin,
         resetDetection,
       }}
     >

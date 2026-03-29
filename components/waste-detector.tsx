@@ -1,24 +1,24 @@
 "use client"
 
 import { useState, useRef } from "react"
-import { useApp } from "@/contexts/app-context"
+import { useApp, type WasteType } from "@/contexts/app-context"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, Scan, CheckCircle2, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-type WasteType = "plastic" | "paper" | "metal"
-
 const wasteEmojis: Record<WasteType, string> = {
   plastic: "🧴",
   paper: "📄",
   metal: "🔩",
+  general: "🗑️",
 }
 
 const wasteLabels: Record<WasteType, string> = {
   plastic: "Plastic",
   paper: "Paper",
   metal: "Metal",
+  general: "General Waste",
 }
 
 export function WasteDetector() {
@@ -29,14 +29,11 @@ export function WasteDetector() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const detectWasteType = (name: string): WasteType => {
-    const lowerName = name.toLowerCase()
-    if (lowerName.includes("bottle") || lowerName.includes("plastic")) {
-      return "plastic"
-    }
-    if (lowerName.includes("paper") || lowerName.includes("cardboard") || lowerName.includes("document")) {
-      return "paper"
-    }
-    return "metal"
+    const n = name.toLowerCase()
+    if (n.includes("bottle") || n.includes("plastic") || n.includes("bag") || n.includes("cup")) return "plastic"
+    if (n.includes("paper") || n.includes("cardboard") || n.includes("document") || n.includes("box")) return "paper"
+    if (n.includes("metal") || n.includes("can") || n.includes("tin") || n.includes("iron") || n.includes("steel")) return "metal"
+    return "general"
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
