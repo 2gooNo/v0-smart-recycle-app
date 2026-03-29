@@ -1,5 +1,6 @@
 "use client"
 
+// Pure React map using pigeon-maps (no Leaflet)
 import { useState } from "react"
 import { Map, Marker } from "pigeon-maps"
 import { type Bin, type WasteType } from "@/contexts/app-context"

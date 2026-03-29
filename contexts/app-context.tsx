@@ -20,6 +20,8 @@ interface AppContextType {
   detectedWaste: WasteType | null
   setDetectedWaste: (waste: WasteType | null) => void
   resetDetection: () => void
+  disposeCount: number
+  incrementDisposeCount: () => void
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined)
@@ -27,13 +29,18 @@ const AppContext = createContext<AppContextType | undefined>(undefined)
 export function AppProvider({ children }: { children: ReactNode }) {
   const [points, setPoints] = useState(0)
   const [detectedWaste, setDetectedWaste] = useState<WasteType | null>(null)
+  const [disposeCount, setDisposeCount] = useState(0)
 
   const addPoints = (amount: number) => {
-    setPoints((prev) => prev + amount)
+    setPoints((prev) => Math.max(0, prev + amount)) // Never go below 0
   }
 
   const resetDetection = () => {
     setDetectedWaste(null)
+  }
+
+  const incrementDisposeCount = () => {
+    setDisposeCount((prev) => prev + 1)
   }
 
   return (
@@ -44,6 +51,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         detectedWaste,
         setDetectedWaste,
         resetDetection,
+        disposeCount,
+        incrementDisposeCount,
       }}
     >
       {children}
