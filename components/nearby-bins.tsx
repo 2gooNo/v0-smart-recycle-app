@@ -1,21 +1,12 @@
 "use client"
 
-import dynamic from "next/dynamic"
 import { useState } from "react"
 import { useApp, type Bin, type WasteType } from "@/contexts/app-context"
 import { Button } from "@/components/ui/button"
-import { MapPin, Navigation, Trash2 } from "lucide-react"
+import { Navigation, Trash2 } from "lucide-react"
 import { getBinsByType } from "@/lib/stations"
 import { cn } from "@/lib/utils"
-
-const BinMap = dynamic(() => import("@/components/bin-map").then((m) => ({ default: m.BinMap })), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-72 rounded-xl bg-muted animate-pulse flex items-center justify-center">
-      <MapPin className="w-6 h-6 text-muted-foreground" />
-    </div>
-  ),
-})
+import { BinMap } from "@/components/bin-map"
 
 const typeConfig: Record<WasteType, { label: string; color: string; bg: string; emoji: string }> = {
   plastic: { label: "Plastic", color: "text-blue-600", bg: "bg-blue-100", emoji: "🧴" },
